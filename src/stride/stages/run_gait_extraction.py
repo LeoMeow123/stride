@@ -119,6 +119,25 @@ def filter_strides(stride_csv: Path, confidence_csv: Path, output_csv: Path,
         df = df[(df[ang_col] >= ang_min) & (df[ang_col] <= ang_max)].copy()
         print(f"    Angular velocity [{ang_min}, {ang_max}] deg/s: removed {n_before_ang - len(df):,} strides")
 
+    # Step 4: Forward direction filtering
+    # Backward strides (mice hesitating/reversing) have fundamentally different
+    # kinematics (2x slower, 2.5x more sway, 5x more turning) and are not
+    # correctable by sign-flipping. Exclude them from the gait analysis.
+    # Detection: median(stride_length_cm) sign gives the forward convention per batch.
+    sl_col = "stride_length_cm"
+    filter_direction = sf.get("filter_forward_direction", True)
+    if filter_direction and sl_col in df.columns:
+        n_before_dir = len(df)
+        median_sl = df[sl_col].median()
+        forward_sign = np.sign(median_sl)
+        if forward_sign != 0:
+            backward_mask = (df[sl_col] * forward_sign) < 0
+            n_backward = int(backward_mask.sum())
+            df = df[~backward_mask].copy()
+            direction = "positive" if forward_sign > 0 else "negative"
+            print(f"    Forward direction filter (stride_length_cm {direction}): "
+                  f"removed {n_backward:,} backward strides ({100*n_backward/n_before_dir:.1f}%)")
+
     df.to_csv(output_csv, index=False)
     print(f"    Final: {len(df):,} strides → {output_csv.name}")
     return len(df)

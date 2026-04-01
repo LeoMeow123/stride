@@ -93,6 +93,10 @@ stride_filtering:
   angular_velocity_min: -20.0   # deg/s — straight-line walking lower bound
   angular_velocity_max: 20.0    # deg/s — straight-line walking upper bound
   remove_edge_strides: true     # remove first/last stride per sequence
+  filter_forward_direction: true  # remove backward (hesitation/reversal) strides
+  # Backward strides have fundamentally different kinematics (2x slower, 2.5x more
+  # sway, 5x more turning) — they are hesitation behavior, not task-directed gait.
+  # Forward direction auto-detected per batch via median(stride_length_cm) sign.
 
 # --- Trial phase tagging ---------------------------------------------------
 trial_phase_tagging:
