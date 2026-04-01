@@ -133,6 +133,7 @@ def run_decision_analysis(
             "enter_seg1_ms", "enter_seg4_ms", "enter_junction_ms", "commit_ms",
             "junction_explore_frames_precommit", "junction_explore_ms_precommit",
             "probes_L", "probes_R", "probe_frames_L", "probe_frames_R",
+            "n_reversals", "reversal_frames", "reversal_ms",
             "coverage_thr_rule"
         ]
         events_df = events_df.reindex(columns=events_cols)
@@ -446,6 +447,80 @@ def decide_arm_entry_v2_depth(pct_cover, fps, reward_side, roi_polys, labels, tr
     )
 
 
+def count_reversals(pct_cover: pd.DataFrame, gate_frame: int,
+                    commit_frame: int | None, fps: float,
+                    min_coverage: float = 30.0) -> tuple[int, int]:
+    """Count direction reversals (mouse retreating toward start) before commitment.
+
+    Tracks the mouse's position along the maze longitudinal axis using the
+    dominant coverage region per frame. A reversal = the mouse drops back by
+    at least 1 full region after reaching a more forward position.
+
+    Region ordering (start → goal):
+      segment4 (0) → segment3 (1) → segment2 (2) → segment1 (3) → junction (4)
+
+    Uses median filtering (11 frames) to suppress single-frame noise.
+    Purely coverage-based — no gait/stride dependency.
+
+    Returns: (n_reversals, reversal_frames)
+    """
+    from scipy.ndimage import median_filter as _mf
+
+    if commit_frame is None or not np.isfinite(commit_frame):
+        return 0, 0
+
+    region_map = {
+        "pct_segment4": 0, "pct_segment3": 1, "pct_segment2": 2,
+        "pct_segment1": 3, "pct_junction": 4,
+    }
+    avail = [c for c in region_map if c in pct_cover.columns]
+    if len(avail) < 3:
+        return 0, 0
+
+    scores = [region_map[c] for c in avail]
+    vals = pct_cover[avail].values
+    valid_mask = np.any(np.isfinite(vals), axis=1)
+
+    # Assign position score per frame based on dominant region
+    position = np.full(len(pct_cover), np.nan)
+    for i in range(len(pct_cover)):
+        if not valid_mask[i]:
+            continue
+        row = vals[i]
+        best = np.nanargmax(row)
+        if np.isfinite(row[best]) and row[best] >= min_coverage:
+            position[i] = scores[best]
+
+    # Smooth: interpolate short gaps, then median filter
+    pos_smooth = pd.Series(position).interpolate(limit=5).values
+    pos_smooth = _mf(pos_smooth, size=11)
+
+    # Detect reversals within task window
+    gate_frame = int(gate_frame)
+    commit_frame = int(commit_frame)
+    task_pos = pos_smooth[gate_frame:commit_frame]
+
+    furthest = 0.0
+    n_reversals = 0
+    reversal_frames = 0
+    in_reversal = False
+
+    for pv in task_pos:
+        if np.isnan(pv):
+            continue
+        if pv > furthest:
+            furthest = pv
+            if in_reversal:
+                in_reversal = False
+        elif pv <= furthest - 1:  # dropped back by 1+ region
+            if not in_reversal:
+                n_reversals += 1
+                in_reversal = True
+            reversal_frames += 1
+
+    return n_reversals, reversal_frames
+
+
 def build_events_row(key, video_path, pct_cover, fps, decision, config,
                      roi_polys=None, dwell_df=None):
     """Build events row matching events.v2.csv format."""
@@ -460,11 +535,14 @@ def build_events_row(key, video_path, pct_cover, fps, decision, config,
     # Count probes (geometric snout-in-polygon method) and junction exploration (dwell-based)
     probe_info = {"probes_L": 0, "probes_R": 0, "probe_frames_L": 0, "probe_frames_R": 0}
     junction_explore = 0
+    n_reversals = 0
+    reversal_frames = 0
     if not np.isnan(commit_frame):
         cf = int(commit_frame)
         if roi_polys is not None:
             probe_info = count_snout_probes(pct_cover, roi_polys, cf)
         junction_explore = count_junction_explore_frames(dwell_df, cf)
+        n_reversals, reversal_frames = count_reversals(pct_cover, gate_frame, cf, fps)
 
     return {
         "day": key["day"],
@@ -485,6 +563,9 @@ def build_events_row(key, video_path, pct_cover, fps, decision, config,
         "junction_explore_frames_precommit": junction_explore,
         "junction_explore_ms_precommit": junction_explore * 1000.0 / fps,
         **probe_info,
+        "n_reversals": n_reversals,
+        "reversal_frames": reversal_frames,
+        "reversal_ms": reversal_frames * 1000.0 / fps if fps > 0 else 0,
         "coverage_thr_rule": decision.get("entry_threshold", "none"),
     }
 
