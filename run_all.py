@@ -6,18 +6,20 @@
 Master orchestrator: runs the full T-maze pipeline from raw data to figures.
 
 Stages:
-  1-3:   tmaze/run_tmaze.py          — decisions, events, metrics, learning cycles
-  4-6:   gait/run_gait_extraction.py — stride detection + filtering
-  7-9:   gait/run_gait.py            — trial tagging, LMM, heatmaps
-  10:    regression/run_regression.py — WT vs Tau classification
+  1-2:   run_inference.py            — SLEAP pose + ROI inference, SLP→YAML
+  3:     run_tmaze.py                — decisions, events, metrics, learning cycles
+  4-6:   run_gait_extraction.py      — stride detection + filtering
+  7-9:   gait_lmm.py                 — trial tagging, LMM, heatmaps
+  10:    classification.py            — WT vs Tau classification
 
 Each stage checks for output file existence before running (resumable).
 
 Usage:
     uv run python automated_pipeline/run_all.py
     uv run python automated_pipeline/run_all.py --batch gopro_sept2025
-    uv run python automated_pipeline/run_all.py --stages 7-9    # only LMM
-    uv run python automated_pipeline/run_all.py --stages 1-3,7-9
+    python run_all.py --stages 7-9         # only LMM
+    python run_all.py --stages 3,7-9       # skip inference, run decisions + LMM
+    python run_all.py --stages 1-2,3,4-6   # full from scratch through filtering
 """
 
 import argparse
@@ -28,22 +30,27 @@ from pathlib import Path
 
 
 PIPELINE_DIR = Path(__file__).resolve().parent
+SRC_STAGES = PIPELINE_DIR / "src" / "stride" / "stages"
 STAGES = {
-    "1-3": {
+    "1-2": {
+        "name": "SLEAP Inference + SLP→YAML",
+        "script": SRC_STAGES / "run_inference.py",
+    },
+    "3": {
         "name": "T-Maze Behavioral Analysis",
-        "script": PIPELINE_DIR / "tmaze" / "run_tmaze.py",
+        "script": SRC_STAGES / "run_tmaze.py",
     },
     "4-6": {
         "name": "Gait Extraction & Filtering",
-        "script": PIPELINE_DIR / "gait" / "run_gait_extraction.py",
+        "script": SRC_STAGES / "run_gait_extraction.py",
     },
     "7-9": {
         "name": "Gait LMM Analysis",
-        "script": PIPELINE_DIR / "gait" / "run_gait.py",
+        "script": SRC_STAGES / "gait_lmm.py",
     },
     "10": {
         "name": "WT vs Tau Classification",
-        "script": PIPELINE_DIR / "regression" / "run_regression.py",
+        "script": SRC_STAGES / "classification.py",
     },
 }
 
