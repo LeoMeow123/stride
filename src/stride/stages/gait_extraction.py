@@ -59,7 +59,7 @@ DEFAULT_PARAMS = dict(
     SMOOTH_MOV_WIN=5,        # moving average window
     PHASE_SPLINE_K=3,        # cubic spline order
     PHASE_GRID=101,          # interpolation grid points
-    DEFAULT_FPS=70.0,        # fallback FPS
+    DEFAULT_FPS=120.0,       # fallback FPS (GoPro=119.88, Basler=100)
     MAZE_WIDTH_CM=10.0,      # physical corridor width
 )
 

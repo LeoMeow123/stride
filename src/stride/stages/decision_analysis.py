@@ -86,7 +86,7 @@ def run_decision_analysis(
     meta_map = {(row.day, row.mouse): row.reward for _, row in meta_df.iterrows()}
 
     # Find videos
-    videos = sorted(video_dir.glob("*.mp4"))
+    videos = sorted(list(video_dir.glob("*.mp4")) + list(video_dir.glob("*.MP4")))
 
     # Create worker function with bound arguments
     worker_fn = partial(
